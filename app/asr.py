@@ -1,8 +1,10 @@
 import gc 
 import time
-
+from dotenv import load_dotenv
+load_dotenv()
 import whisperx
-
+import os
+hf_token = os.getenv("HF_TOKEN")
 from postprocessing.punctuation import add_punctuation
 
 # from .postprocessing import add_punctuation
@@ -25,7 +27,7 @@ class ASRModel:
         )
         self.diarize_model = whisperx.DiarizationPipeline(
             model_name="fatymatariq/speaker-diarization-3.1",
-            use_auth_token="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", 
+            use_auth_token=hf_token, 
             device=device,
         )
         self.batch_size = batch_size

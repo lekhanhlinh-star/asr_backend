@@ -2,8 +2,8 @@ import os
 from celery import Celery
 import sys
 from dotenv import load_dotenv
-from pathlib import Path
 load_dotenv()
+from pathlib import Path
 # Add the parent directory of this file to PYTHONPATH
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.append(str(BASE_DIR))
