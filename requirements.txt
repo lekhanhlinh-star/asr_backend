@@ -1,0 +1,23 @@
+--extra-index-url https://download.pytorch.org/whl/cu118
+# pyannote.audio==3.3.0
+# whisperx @ git+https://github.com/m-bain/whisperx.git@6b1100a91963695e0946144166c82bd233ac99db 
+whisperx
+torch==2.1.0
+torchaudio==2.1.0
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary    # or your DB driver
+celery[redis]
+redis
+python-multipart   # for UploadFile
+pymysql
+tokenizers==0.13 
+punctuators==0.0.4
+soundfile==0.12.1
+transformers==4.28.1
+wordninja==2.0.0
+
+networkx
+zhpr
+librosa==0.10.0.post2
