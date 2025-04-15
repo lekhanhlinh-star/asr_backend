@@ -9,7 +9,7 @@ on:
       - main
 
 env:
-  IMAGE_NAME: your-dockerhub-username/your-app-name
+  IMAGE_NAME: linh2002/asr_backend
 
 jobs:
   build:
