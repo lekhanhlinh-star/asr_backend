@@ -1,7 +1,7 @@
 --extra-index-url https://download.pytorch.org/whl/cu118
 # pyannote.audio==3.3.0
 # whisperx @ git+https://github.com/m-bain/whisperx.git@6b1100a91963695e0946144166c82bd233ac99db 
-whisperx
+whisperx==3.2.0
 torch==2.1.0
 torchaudio==2.1.0
 fastapi
@@ -17,7 +17,10 @@ punctuators==0.0.4
 soundfile==0.12.1
 transformers==4.28.1
 wordninja==2.0.0
-
+numpy<2
+streamlit
 networkx
 zhpr
+httpx
 librosa==0.10.0.post2
+streamlit

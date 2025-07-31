@@ -8,4 +8,9 @@ celery -A app.celery_app.celery worker --loglevel=info --concurrency=1  --pool=s
 sleep 5
 
 echo "🟢 Starting Uvicorn server..."
-exec uvicorn app.main:app --host 0.0.0.0 --port=8001
+exec uvicorn app.main:app --host 0.0.0.0 --port=8001 &
+
+sleep 5
+
+echo "🟢 Starting Uvicorn server..."
+exec  streamlit run frontend.py --server.port 8502

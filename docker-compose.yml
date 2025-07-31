@@ -7,7 +7,8 @@ services:
     volumes:
       - .:/app
     ports:
-      - "8001:8001"
+      - "8003:8001"
+      - "8502:8502"
     depends_on:
       - db
       - redis
@@ -15,14 +16,18 @@ services:
       DATABASE_URL: mysql+pymysql://root:2002@db:3306/ASR
       BROKER_URL: redis://ASR_backend-redis-1:6379/0
       BACKEND_URL: redis://ASR_backend-redis-1:6379/0
-    runtime: nvidia
+      HF_TOKEN: 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
+      CUDA_VISIBLE_DEVICES: 0
     networks:
       backend_net:
     deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: [gpu]
+        resources:
+          reservations:
+            devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              device_ids: ["1"]
+
 
 
   db:
