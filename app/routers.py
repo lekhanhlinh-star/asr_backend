@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from tasks.process_audio import process_audio
 from database import get_db,Session
 import requests
-from models import Task
+from models import Task, TaskSegment
 router = APIRouter()
 # from asr import ASRModel
 # import httpx
@@ -22,6 +22,7 @@ SUMMARIZER_API_URL = "http://140.115.59.61:8000/v1/summarize"
 async def prepare(
     file_len: str = Form(...),
     file_name: str = Form(...),
+    total_segments: int = Form(...),
     speaker_number: str = Form("2"),
     has_separate: str = Form("false"),
     language: str = Form("default"),
@@ -35,6 +36,7 @@ async def prepare(
         status=0,
         file_len=file_len,
         file_name=file_name,
+        total_segments=total_segments,
         speaker_number=speaker_number,
         has_separate=has_separate.lower() == "true",
         language=language,
@@ -52,7 +54,9 @@ async def prepare(
 @router.post("/api/upload")
 async def upload(
     task_id: str = Form(...),
-    file: UploadFile = File(...),
+    segment_id: int = Form(...),
+    segment_len: str = Form(...),
+    content: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
     task = db.query(Task).filter(Task.id == task_id).first()
@@ -70,24 +74,38 @@ async def upload(
             status_code=400,
         )
 
-    # Save uploaded file
-    file_path = f"uploads/{task_id}_{file.filename}"
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    with open(file_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
+    # Save uploaded segment
+    segment_file_path = f"uploads/{task_id}_segment_{segment_id}_{content.filename}"
+    os.makedirs(os.path.dirname(segment_file_path), exist_ok=True)
+    with open(segment_file_path, "wb") as f:
+        file_content = await content.read()
+        f.write(file_content)
 
-    # Update DB
-    task.file_path = file_path
-    task.status = 1  # Upload completed
-    db.commit()
-    logging.info("File uploaded and saved for task %s at %s", task_id, file_path)
+    # Save segment info to database
+    task_segment = TaskSegment(
+        task_id=task_id,
+        segment_id=segment_id,
+        segment_len=segment_len,
+        file_path=segment_file_path,
+        status=0
+    )
+    db.add(task_segment)
 
+    # Update DB - for first segment, set file_path and start processing
+    if segment_id == 1:
+        task.file_path = segment_file_path
+        task.status = 1  # Upload completed
+        db.commit()
+        logging.info("First segment uploaded for task %s at %s", task_id, segment_file_path)
+        
+        # Start processing after first segment upload
+        process_audio.delay(task_id)
+        logging.info("Enqueued Celery task for processing audio, task_id=%s", task_id)
+    else:
+        db.commit()
+        logging.info("Segment %d uploaded for task %s at %s", segment_id, task_id, segment_file_path)
 
-    process_audio.delay(task_id)
-    logging.info("Enqueued Celery task for processing audio, task_id=%s", task_id)
-
-    return {"ok": 1, "err_no": 0, "failed": None, "data": {"task_id": task_id}}
+    return {"ok": 0, "err_no": 0, "failed": None, "data": None}
 
 @router.post("/api/getProgress")
 async def get_progress(task_id: str = Form(...), db: Session = Depends(get_db)):
@@ -99,9 +117,34 @@ async def get_progress(task_id: str = Form(...), db: Session = Depends(get_db)):
             status_code=404,
         )
     
-    progress_data = {"desc": "Task status", "status": task.status}
+    # Get segment statuses
+    segments_data = {}
+    task_segments = db.query(TaskSegment).filter(TaskSegment.task_id == task_id).all()
+    
+    # Helper function to get status description
+    def get_status_desc(status):
+        status_map = {
+            0: "Task created successfully",
+            1: "Audio upload completed", 
+            2: "Audio recognition in progress",
+            9: "Recognition completed"
+        }
+        return status_map.get(status, "Unknown status")
+    
+    for segment in task_segments:
+        segments_data[str(segment.segment_id)] = {
+            "status": segment.status,
+            "desc": get_status_desc(segment.status)
+        }
+    
+    progress_data = {
+        "task_status": task.status,
+        "desc": get_status_desc(task.status),
+        "segments": segments_data
+    }
+    
     logging.info("Progress for task %s requested: status %s", task_id, task.status)
-    return JSONResponse(content={"ok": 0, "err_no": 0, "failed": None, "data": json.dumps(progress_data)})
+    return JSONResponse(content={"ok": 0, "err_no": 0, "failed": None, "data": progress_data})
 
 
 
@@ -123,11 +166,18 @@ async def get_result(task_id: str = Form(...), db: Session = Depends(get_db)):
             status_code=400,
         )
     
+    # Convert result to JSON string as required by spec
+    result_data = task.result
+    if isinstance(result_data, list):
+        result_json_string = json.dumps(result_data, ensure_ascii=False)
+    else:
+        result_json_string = result_data
+    
     logging.info("Result returned for task %s", task_id)
     return JSONResponse(
-    content={"ok": 0, "err_no": 0, "failed": None, "data": task.result},
-    status_code=200,
-)
+        content={"ok": 0, "err_no": 0, "failed": None, "data": result_json_string},
+        status_code=200,
+    )
 
 
 
