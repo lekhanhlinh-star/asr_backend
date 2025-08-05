@@ -74,6 +74,47 @@ async def upload(
             status_code=400,
         )
 
+    # Validate segment_id range
+    if segment_id < 1 or segment_id > task.total_segments:
+        logging.error("Upload failed: Invalid segment_id %d for task %s (expected 1-%d)", 
+                     segment_id, task_id, task.total_segments)
+        return JSONResponse(
+            content={"ok": -1, "err_no": 26001, "failed": f"Invalid segment_id {segment_id}. Must be between 1 and {task.total_segments}", "data": None},
+            status_code=400,
+        )
+
+    # Check if segment already exists
+    existing_segment = db.query(TaskSegment).filter(
+        TaskSegment.task_id == task_id,
+        TaskSegment.segment_id == segment_id
+    ).first()
+    
+    if existing_segment:
+        logging.error("Upload failed: Segment %d already exists for task %s", segment_id, task_id)
+        return JSONResponse(
+            content={"ok": -1, "err_no": 26002, "failed": f"Segment {segment_id} already uploaded", "data": None},
+            status_code=400,
+        )
+
+    # Validate sequential upload - MUST upload in order (1, 2, 3, ...)
+    uploaded_segments = db.query(TaskSegment).filter(TaskSegment.task_id == task_id).count()
+    expected_segment_id = uploaded_segments + 1
+    
+    logging.info("Upload validation for task %s: uploaded_segments=%d, expected=%d, received=%d", 
+                task_id, uploaded_segments, expected_segment_id, segment_id)
+    
+    if segment_id != expected_segment_id:
+        if segment_id < expected_segment_id:
+            error_msg = f"Segment {segment_id} already uploaded. Expected segment {expected_segment_id}."
+        else:
+            error_msg = f"Must upload segment {expected_segment_id} before segment {segment_id}. Upload segments in order (1→2→3...)."
+        
+        logging.error("Upload failed: %s (task %s)", error_msg, task_id)
+        return JSONResponse(
+            content={"ok": -1, "err_no": 26003, "failed": error_msg, "data": None},
+            status_code=400,
+        )
+
     # Save uploaded segment
     segment_file_path = f"uploads/{task_id}_segment_{segment_id}_{content.filename}"
     os.makedirs(os.path.dirname(segment_file_path), exist_ok=True)
@@ -91,21 +132,30 @@ async def upload(
     )
     db.add(task_segment)
 
-    # Update DB - for first segment, set file_path and start processing
+    # Check if this is the last segment to trigger processing
+    uploaded_count = uploaded_segments + 1  # +1 because we're adding current segment
+    
     if segment_id == 1:
+        # First segment - set file_path but don't start processing yet
         task.file_path = segment_file_path
+        task.status = 1  # Upload in progress
+        logging.info("✅ First segment uploaded for task %s at %s", task_id, segment_file_path)
+    elif uploaded_count == task.total_segments:
+        # Last segment - start processing
         task.status = 1  # Upload completed
         db.commit()
-        logging.info("First segment uploaded for task %s at %s", task_id, segment_file_path)
+        logging.info("✅ All %d segments uploaded for task %s. Starting processing...", task.total_segments, task_id)
         
-        # Start processing after first segment upload
+        # Start processing only when all segments are uploaded
         process_audio.delay(task_id)
-        logging.info("Enqueued Celery task for processing audio, task_id=%s", task_id)
+        logging.info("🚀 Enqueued Celery task for processing audio, task_id=%s", task_id)
+        return {"ok": 0, "err_no": 0, "failed": None, "data": f"All segments uploaded. Processing started."}
     else:
-        db.commit()
-        logging.info("Segment %d uploaded for task %s at %s", segment_id, task_id, segment_file_path)
-
-    return {"ok": 0, "err_no": 0, "failed": None, "data": None}
+        # Middle segments
+        logging.info("✅ Segment %d/%d uploaded for task %s at %s", segment_id, task.total_segments, task_id, segment_file_path)
+    
+    db.commit()
+    return {"ok": 0, "err_no": 0, "failed": None, "data": f"Segment {segment_id}/{task.total_segments} uploaded successfully."}
 
 @router.post("/api/getProgress")
 async def get_progress(task_id: str = Form(...), db: Session = Depends(get_db)):
@@ -157,6 +207,16 @@ async def get_result(task_id: str = Form(...), db: Session = Depends(get_db)):
         return JSONResponse(
             content={"ok": -1, "err_no": 26000, "failed": "Task ID does not exist", "data": None},
             status_code=404,
+        )
+    
+    # Check if all segments have been uploaded
+    uploaded_segments = db.query(TaskSegment).filter(TaskSegment.task_id == task_id).count()
+    if uploaded_segments < task.total_segments:
+        logging.warning("Result requested for incomplete upload task %s: %d/%d segments uploaded", 
+                       task_id, uploaded_segments, task.total_segments)
+        return JSONResponse(
+            content={"ok": -1, "err_no": 26004, "failed": f"Incomplete upload: {uploaded_segments}/{task.total_segments} segments uploaded. Upload all segments before requesting result.", "data": None},
+            status_code=400,
         )
     
     if task.status != 9:

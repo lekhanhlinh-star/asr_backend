@@ -7,7 +7,6 @@ class Task(Base):
     status = Column(Integer, default=0)
     file_len = Column(String(50))
     file_name = Column(String(255))
-    total_segments = Column(Integer, nullable=True)
     speaker_number = Column(String(10))
     has_separate = Column(Boolean, default=False)
     language = Column(String(50))
