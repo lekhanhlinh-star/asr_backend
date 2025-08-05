@@ -135,7 +135,7 @@ def process_audio(task_id: str):
                             "bg": str(adjusted_start),
                             "ed": str(adjusted_end),
                             "onebest": line['text'].strip(),
-                            "speaker": speaker_val
+                            "speaker": line["speaker"] 
                         })
                         segment_result_count += 1
                 
